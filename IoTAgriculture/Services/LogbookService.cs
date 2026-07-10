@@ -58,6 +58,11 @@ namespace IoTAgriculture.Services
         public async Task GenerateTodayLogbookAsync(CancellationToken cancellationToken = default)
         {
             var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, VietnamTimeZone);
+            if (!IsWithinAutoLogbookWindow(nowLocal.DateTime))
+            {
+                return;
+            }
+
             await GenerateDailyLogbookAsync(DateOnly.FromDateTime(nowLocal.Date), cancellationToken);
         }
 
@@ -291,6 +296,15 @@ namespace IoTAgriculture.Services
         {
             var offset = VietnamTimeZone.GetUtcOffset(localTime);
             return new DateTimeOffset(localTime, offset).ToUniversalTime();
+        }
+
+        private static bool IsWithinAutoLogbookWindow(DateTime localTime)
+        {
+            var timeOfDay = localTime.TimeOfDay;
+            var start = new TimeSpan(6, 0, 0);
+            var end = new TimeSpan(18, 0, 0);
+
+            return timeOfDay >= start && timeOfDay < end;
         }
 
         private static TimeZoneInfo ResolveVietnamTimeZone()
