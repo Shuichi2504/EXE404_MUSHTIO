@@ -46,6 +46,9 @@ namespace IoTAgriculture.Services
                     timestamp = timestamp.ToString(CultureInfo.InvariantCulture),
                     temperature = ReadDouble(device.Value, "temperature"),
                     humidity = ReadDouble(device.Value, "humidity"),
+                    air_quality = ReadDouble(device.Value, "air_quality")
+                        ?? ReadDouble(device.Value, "airQuality")
+                        ?? ReadDouble(device.Value, "air_quanlity"),
                     ground_temperature = ReadLayerDouble(device.Value, "ground", "lower", "temperature"),
                     top_temperature = ReadLayerDouble(device.Value, "top", "upper", "temperature"),
                     ground_humidity = ReadLayerDouble(device.Value, "ground", "lower", "humidity"),
@@ -225,6 +228,9 @@ namespace IoTAgriculture.Services
                 DeviceName = deviceName,
                 Temperature = ReadDouble(json, "temperature"),
                 Humidity = ReadDouble(json, "humidity"),
+                AirQuality = ReadDouble(json, "air_quality")
+                    ?? ReadDouble(json, "airQuality")
+                    ?? ReadDouble(json, "air_quanlity"),
                 GroundTemperature = ReadLayerDouble(json, "ground", "lower", "temperature"),
                 TopTemperature = ReadLayerDouble(json, "top", "upper", "temperature"),
                 GroundHumidity = groundHumidity,
@@ -313,6 +319,11 @@ namespace IoTAgriculture.Services
         {
             return ReadDouble(json, "temperature") != null ||
                 ReadDouble(json, "humidity") != null ||
+                ReadDouble(json, "air_quality") != null ||
+                ReadDouble(json, "airQuality") != null ||
+                ReadDouble(json, "air_quanlity") != null ||
+                ReadString(json, "air_status") != null ||
+                ReadString(json, "airStatus") != null ||
                 ReadDouble(json, "ground_humidity") != null ||
                 ReadDouble(json, "groundHumidity") != null ||
                 ReadDouble(json, "top_humidity") != null ||
@@ -344,7 +355,7 @@ namespace IoTAgriculture.Services
         private static string BuildCsv(DailyLogbookDto logbook)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("timestamp,local_time,device_key,device_name,temperature,humidity,ground_temperature,top_temperature,ground_humidity,top_humidity,soil_moisture");
+            builder.AppendLine("timestamp,local_time,device_key,device_name,temperature,humidity,air_quality,ground_temperature,top_temperature,ground_humidity,top_humidity,soil_moisture");
 
             foreach (var record in logbook.Records)
             {
@@ -354,6 +365,7 @@ namespace IoTAgriculture.Services
                     .Append(Escape(record.DeviceName)).Append(',')
                     .Append(Format(record.Temperature)).Append(',')
                     .Append(Format(record.Humidity)).Append(',')
+                    .Append(Format(record.AirQuality)).Append(',')
                     .Append(Format(record.GroundTemperature)).Append(',')
                     .Append(Format(record.TopTemperature)).Append(',')
                     .Append(Format(record.GroundHumidity)).Append(',')
