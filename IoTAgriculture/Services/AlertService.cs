@@ -8,6 +8,7 @@ namespace IoTAgriculture.Services
     {
         private const double HighTemperatureCelsius = 35;
         private const double LowSoilMoisturePercent = 30;
+        private const double PoorAirQualityThreshold = 1000;
         private static readonly TimeSpan SensorOfflineAfter = TimeSpan.FromMinutes(2);
         private static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
         private readonly IFirebaseRtdbService _firebase;
@@ -33,6 +34,9 @@ namespace IoTAgriculture.Services
                     ?? ReadString(device.Value, "deviceName")
                     ?? device.Key;
                 var temperature = ReadDouble(device.Value, "temperature");
+                var airQuality = ReadDouble(device.Value, "air_quality")
+                    ?? ReadDouble(device.Value, "airQuality")
+                    ?? ReadDouble(device.Value, "air_quanlity");
                 var soilMoisture = ReadDouble(device.Value, "soil_moisture")
                     ?? ReadDouble(device.Value, "soilMoisture");
                 var lastSeen = ReadTimestamp(device.Value);
@@ -46,6 +50,17 @@ namespace IoTAgriculture.Services
                     temperature,
                     HighTemperatureCelsius,
                     $"Nhiet do cao tren {HighTemperatureCelsius:0.#} C",
+                    cancellationToken);
+
+                await UpsertAlertAsync(
+                    device.Key,
+                    name,
+                    "poor_air_quality",
+                    airQuality != null && airQuality > PoorAirQualityThreshold,
+                    "air_quality",
+                    airQuality,
+                    PoorAirQualityThreshold,
+                    $"Chat luong khong khi xau tren {PoorAirQualityThreshold:0.#}",
                     cancellationToken);
 
                 await UpsertAlertAsync(
@@ -128,6 +143,11 @@ namespace IoTAgriculture.Services
         {
             return HasMetric(json, "temperature") ||
                 HasMetric(json, "humidity") ||
+                HasMetric(json, "air_quality") ||
+                HasMetric(json, "airQuality") ||
+                HasMetric(json, "air_quanlity") ||
+                ReadString(json, "air_status") != null ||
+                ReadString(json, "airStatus") != null ||
                 HasMetric(json, "soil_moisture") ||
                 HasMetric(json, "soilMoisture");
         }
