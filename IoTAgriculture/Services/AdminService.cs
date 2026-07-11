@@ -66,6 +66,11 @@ namespace IoTAgriculture.Services
 
             if (HasProperty(json, "temperature") ||
                 HasProperty(json, "humidity") ||
+                HasProperty(json, "air_quality") ||
+                HasProperty(json, "airQuality") ||
+                HasProperty(json, "air_quanlity") ||
+                HasProperty(json, "air_status") ||
+                HasProperty(json, "airStatus") ||
                 HasProperty(json, "soil_moisture") ||
                 HasProperty(json, "soilMoisture"))
             {
