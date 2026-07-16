@@ -6,12 +6,18 @@ namespace IoTAgriculture.Services;
 public class GeminiService
 {
     private readonly string _apiKey;
+    private readonly string _model;
     private readonly HttpClient _httpClient;
 
     public GeminiService(IConfiguration configuration, HttpClient httpClient)
     {
-        _apiKey = configuration["Gemini:ApiKey"] ?? "";
+        _apiKey = configuration["Gemini:ApiKey"]
+            ?? configuration["GeminiApiKey"]
+            ?? configuration["GOOGLE_API_KEY"]
+            ?? "";
+        _model = configuration["Gemini:Model"] ?? "gemini-1.5-flash";
         _httpClient = httpClient;
+        _httpClient.Timeout = TimeSpan.FromSeconds(45);
     }
 
     public async Task<string> AskAsync(
@@ -60,7 +66,7 @@ public class GeminiService
         };
 
         var endpoint =
-            $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={Uri.EscapeDataString(_apiKey)}";
+            $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(_model)}:generateContent?key={Uri.EscapeDataString(_apiKey)}";
 
         var response = await _httpClient.PostAsJsonAsync(endpoint, request);
         if (!response.IsSuccessStatusCode)

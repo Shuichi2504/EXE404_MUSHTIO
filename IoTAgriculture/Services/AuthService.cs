@@ -13,19 +13,36 @@ namespace IoTAgriculture.Services
         private const int UserRole = 0;
         private const int AdminRole = 1;
         private readonly IoTDbContext _db;
+        private readonly IEmailSender _emailSender;
 
-        public AuthService(IoTDbContext db)
+        public AuthService(IoTDbContext db, IEmailSender emailSender)
         {
             _db = db;
+            _emailSender = emailSender;
         }
 
         public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto)
         {
             var phone = NormalizePhone(dto.PhoneNumber);
-            var exists = await _db.Users.AnyAsync(u => u.PhoneNumber == phone);
-            if (exists)
+            var email = NormalizeEmail(dto.Email);
+            if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(email))
+            {
+                throw new InvalidOperationException("Phone number and email are required");
+            }
+
+            if (await _db.Users.AnyAsync(u => u.PhoneNumber == phone))
             {
                 throw new InvalidOperationException("Phone number already exists");
+            }
+
+            if (await _db.Users.AnyAsync(u => u.Email == email))
+            {
+                throw new InvalidOperationException("Email already exists");
+            }
+
+            if (!await HasVerifiedCodeAsync(email, "register"))
+            {
+                throw new InvalidOperationException("Email verification is required");
             }
 
             var password = HashPassword(dto.Password);
@@ -34,6 +51,8 @@ namespace IoTAgriculture.Services
                 UserId = Guid.NewGuid(),
                 FullName = dto.FullName.Trim(),
                 PhoneNumber = phone,
+                Email = email,
+                EmailVerified = true,
                 Address = dto.Address.Trim(),
                 DateOfBirth = dto.DateOfBirth.Date,
                 Role = UserRole,
@@ -44,22 +63,94 @@ namespace IoTAgriculture.Services
             };
 
             _db.Users.Add(user);
+            await MarkCodesUsedAsync(email, "register");
             await _db.SaveChangesAsync();
-            await LogActivityAsync(user.UserId, "register", "Tạo tài khoản mới", "info");
+            await LogActivityAsync(user.UserId, "register", "Tao tai khoan moi", "info");
             return await CreateSessionAsync(user);
+        }
+
+        public async Task RequestEmailCodeAsync(EmailCodeRequestDto dto)
+        {
+            var email = NormalizeEmail(dto.Email);
+            var purpose = NormalizePurpose(dto.Purpose);
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                throw new InvalidOperationException("Email is required");
+            }
+
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (purpose == "register" && user != null)
+            {
+                throw new InvalidOperationException("Email already exists");
+            }
+
+            if (purpose == "reset-password" && user == null)
+            {
+                throw new InvalidOperationException("Email does not exist");
+            }
+
+            var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+            var now = DateTime.UtcNow;
+            _db.EmailVerificationCodes.Add(new EmailVerificationCode
+            {
+                VerificationId = Guid.NewGuid(),
+                Email = email,
+                Code = code,
+                Purpose = purpose,
+                UserId = user?.UserId,
+                CreatedAt = now,
+                ExpiresAt = now.AddMinutes(10)
+            });
+
+            await _db.SaveChangesAsync();
+            await _emailSender.SendVerificationCodeAsync(email, code, purpose);
+        }
+
+        public async Task<bool> VerifyEmailCodeAsync(VerifyEmailCodeRequestDto dto)
+        {
+            return await HasCodeAsync(
+                NormalizeEmail(dto.Email),
+                NormalizePurpose(dto.Purpose),
+                dto.Code);
+        }
+
+        public async Task<bool> ResetPasswordAsync(ResetPasswordRequestDto dto)
+        {
+            var email = NormalizeEmail(dto.Email);
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null || !await HasCodeAsync(email, "reset-password", dto.Code))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            {
+                throw new InvalidOperationException("New password must have at least 6 characters");
+            }
+
+            var password = HashPassword(dto.NewPassword);
+            user.PasswordHash = password.Hash;
+            user.PasswordSalt = password.Salt;
+            user.UpdatedAt = DateTime.UtcNow;
+            await MarkCodesUsedAsync(email, "reset-password");
+            await LogActivityAsync(user.UserId, "password_reset", "Dat lai mat khau bang email", "warning");
+            await _db.SaveChangesAsync();
+            return true;
         }
 
         public async Task<AuthResponseDto?> LoginAsync(LoginRequestDto dto)
         {
-            var phone = NormalizePhone(dto.PhoneNumber);
-            var user = await _db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == phone);
+            var identifier = NormalizeIdentifier(dto);
+            var user = identifier.Contains('@')
+                ? await _db.Users.FirstOrDefaultAsync(u => u.Email == identifier)
+                : await _db.Users.FirstOrDefaultAsync(u => u.PhoneNumber == identifier);
             if (user == null || !VerifyPassword(dto.Password, user.PasswordHash, user.PasswordSalt))
             {
                 return null;
             }
 
             var response = await CreateSessionAsync(user);
-            await LogActivityAsync(user.UserId, "login", "Đăng nhập vào hệ thống", "info");
+            await LogActivityAsync(user.UserId, "login", "Dang nhap vao he thong", "info");
             return response;
         }
 
@@ -82,20 +173,8 @@ namespace IoTAgriculture.Services
                 .CountAsync(s => s.UserId == userId && s.ExpiresAt > DateTime.UtcNow);
             var assignedDeviceCount = await _db.UserDevices.CountAsync(x => x.UserId == userId);
             var permissions = session.User.Role == AdminRole
-                ? new List<string>
-                {
-                    "Quản lý người dùng",
-                    "Gán thiết bị",
-                    "Xem toàn bộ thiết bị",
-                    "Điều khiển thiết bị"
-                }
-                : new List<string>
-                {
-                    "Xem thiết bị được gán",
-                    "Xem dữ liệu cảm biến",
-                    "Điều khiển máy bơm được gán",
-                    "Cập nhật thông tin cá nhân"
-                };
+                ? new List<string> { "Quan ly nguoi dung", "Gan thiet bi", "Xem toan bo thiet bi", "Dieu khien thiet bi" }
+                : new List<string> { "Xem thiet bi duoc gan", "Xem du lieu cam bien", "Dieu khien may bom duoc gan", "Cap nhat thong tin ca nhan" };
 
             return new AccountSummaryDto
             {
@@ -133,6 +212,7 @@ namespace IoTAgriculture.Services
 
             var fullName = dto.FullName.Trim();
             var phone = NormalizePhone(dto.PhoneNumber);
+            var email = NormalizeEmail(dto.Email);
             var address = dto.Address.Trim();
             if (string.IsNullOrWhiteSpace(fullName) ||
                 string.IsNullOrWhiteSpace(phone) ||
@@ -141,19 +221,24 @@ namespace IoTAgriculture.Services
                 throw new InvalidOperationException("Profile fields are required");
             }
 
-            var phoneExists = await _db.Users.AnyAsync(u =>
-                u.UserId != session.UserId && u.PhoneNumber == phone);
-            if (phoneExists)
+            if (await _db.Users.AnyAsync(u => u.UserId != session.UserId && u.PhoneNumber == phone))
             {
                 throw new InvalidOperationException("Phone number already exists");
             }
 
+            if (!string.IsNullOrWhiteSpace(email) &&
+                await _db.Users.AnyAsync(u => u.UserId != session.UserId && u.Email == email))
+            {
+                throw new InvalidOperationException("Email already exists");
+            }
+
             session.User.FullName = fullName;
             session.User.PhoneNumber = phone;
+            session.User.Email = email;
             session.User.Address = address;
             session.User.DateOfBirth = dto.DateOfBirth.Date;
             session.User.UpdatedAt = DateTime.UtcNow;
-            await LogActivityAsync(session.UserId, "profile_update", "Cập nhật thông tin tài khoản", "info");
+            await LogActivityAsync(session.UserId, "profile_update", "Cap nhat thong tin tai khoan", "info");
             await _db.SaveChangesAsync();
             return ToProfile(session.User);
         }
@@ -180,7 +265,7 @@ namespace IoTAgriculture.Services
             session.User.PasswordHash = password.Hash;
             session.User.PasswordSalt = password.Salt;
             session.User.UpdatedAt = DateTime.UtcNow;
-            await LogActivityAsync(session.UserId, "password_change", "Đổi mật khẩu đăng nhập", "warning");
+            await LogActivityAsync(session.UserId, "password_change", "Doi mat khau dang nhap", "warning");
             await _db.SaveChangesAsync();
             return true;
         }
@@ -193,7 +278,7 @@ namespace IoTAgriculture.Services
                 return;
             }
 
-            await LogActivityAsync(session.UserId, "logout", "Đăng xuất khỏi hệ thống", "info");
+            await LogActivityAsync(session.UserId, "logout", "Dang xuat khoi he thong", "info");
             _db.UserSessions.Remove(session);
             await _db.SaveChangesAsync();
         }
@@ -253,6 +338,7 @@ namespace IoTAgriculture.Services
                 UserId = user.UserId,
                 FullName = user.FullName,
                 PhoneNumber = user.PhoneNumber,
+                Email = user.Email,
                 Address = user.Address,
                 DateOfBirth = user.DateOfBirth,
                 Role = user.Role == AdminRole ? "admin" : "user"
@@ -269,8 +355,7 @@ namespace IoTAgriculture.Services
                 Description = activity.Description,
                 Severity = activity.Severity,
                 CreatedAt = activity.CreatedAt,
-                CreatedLocal =
-                    $"{local:yyyy-MM-dd HH:mm:ss}"
+                CreatedLocal = $"{local:yyyy-MM-dd HH:mm:ss}"
             };
         }
 
@@ -291,6 +376,61 @@ namespace IoTAgriculture.Services
         private static string NormalizePhone(string phone)
         {
             return phone.Trim();
+        }
+
+        private static string NormalizeEmail(string email)
+        {
+            return email.Trim().ToLowerInvariant();
+        }
+
+        private static string NormalizePurpose(string purpose)
+        {
+            var normalized = purpose.Trim().ToLowerInvariant();
+            return normalized == "reset" || normalized == "forgot-password"
+                ? "reset-password"
+                : normalized;
+        }
+
+        private static string NormalizeIdentifier(LoginRequestDto dto)
+        {
+            var raw = !string.IsNullOrWhiteSpace(dto.Identifier)
+                ? dto.Identifier
+                : !string.IsNullOrWhiteSpace(dto.Email)
+                    ? dto.Email
+                    : dto.PhoneNumber;
+
+            raw = raw.Trim();
+            return raw.Contains('@') ? NormalizeEmail(raw) : NormalizePhone(raw);
+        }
+
+        private async Task<bool> HasVerifiedCodeAsync(string email, string purpose)
+        {
+            return await _db.EmailVerificationCodes.AnyAsync(x =>
+                x.Email == email &&
+                x.Purpose == purpose &&
+                x.UsedAt == null &&
+                x.ExpiresAt > DateTime.UtcNow);
+        }
+
+        private async Task<bool> HasCodeAsync(string email, string purpose, string code)
+        {
+            return await _db.EmailVerificationCodes.AnyAsync(x =>
+                x.Email == email &&
+                x.Purpose == purpose &&
+                x.Code == code.Trim() &&
+                x.UsedAt == null &&
+                x.ExpiresAt > DateTime.UtcNow);
+        }
+
+        private async Task MarkCodesUsedAsync(string email, string purpose)
+        {
+            var codes = await _db.EmailVerificationCodes
+                .Where(x => x.Email == email && x.Purpose == purpose && x.UsedAt == null)
+                .ToListAsync();
+            foreach (var code in codes)
+            {
+                code.UsedAt = DateTime.UtcNow;
+            }
         }
 
         private static PasswordParts HashPassword(string password)

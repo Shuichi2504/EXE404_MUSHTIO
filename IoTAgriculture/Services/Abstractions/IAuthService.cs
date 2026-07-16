@@ -5,6 +5,9 @@ namespace IoTAgriculture.Services.Interfaces
     public interface IAuthService
     {
         Task<AuthResponseDto> RegisterAsync(RegisterRequestDto dto);
+        Task RequestEmailCodeAsync(EmailCodeRequestDto dto);
+        Task<bool> VerifyEmailCodeAsync(VerifyEmailCodeRequestDto dto);
+        Task<bool> ResetPasswordAsync(ResetPasswordRequestDto dto);
         Task<AuthResponseDto?> LoginAsync(LoginRequestDto dto);
         Task<UserProfileDto?> GetProfileAsync(string token);
         Task<AccountSummaryDto?> GetAccountSummaryAsync(string token);

@@ -37,7 +37,7 @@ public class AiController : ControllerBase
         }
 
         var message = string.IsNullOrWhiteSpace(request.Message)
-            ? "Hãy xem hình ảnh này và đưa ra nhận xét."
+            ? "Hay xem hinh anh nay va dua ra nhan xet."
             : request.Message.Trim();
 
         await SaveMessageSafelyAsync(
@@ -58,12 +58,14 @@ public class AiController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "AI chat request failed");
+            var userMessage = ex is InvalidOperationException &&
+                ex.Message.Contains("API key", StringComparison.OrdinalIgnoreCase)
+                ? "Backend chua cau hinh Gemini API key. Hay them Gemini__ApiKey trong Azure App Service."
+                : "AI khong phan hoi duoc. Vui long kiem tra Gemini API key, model hoac ket noi mang cua backend.";
+
             return StatusCode(
                 StatusCodes.Status502BadGateway,
-                new
-                {
-                    message = "AI không phản hồi được. Vui lòng kiểm tra Gemini API key hoặc kết nối mạng của backend."
-                });
+                new { message = userMessage });
         }
 
         await SaveMessageSafelyAsync(
@@ -72,11 +74,7 @@ public class AiController : ControllerBase
             "ai",
             answer);
 
-        return Ok(
-            new ChatResponseDto
-            {
-                Answer = answer
-            });
+        return Ok(new ChatResponseDto { Answer = answer });
     }
 
     [HttpGet("history/{userId}")]
@@ -85,7 +83,6 @@ public class AiController : ControllerBase
         [FromServices] ChatService chatService)
     {
         var messages = await chatService.GetHistoryAsync(userId);
-
         return Ok(messages);
     }
 
@@ -100,7 +97,6 @@ public class AiController : ControllerBase
         }
 
         await chatService.ClearHistoryAsync(userId);
-
         return NoContent();
     }
 

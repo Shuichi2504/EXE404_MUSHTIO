@@ -86,21 +86,29 @@ namespace IoTAgriculture.Controllers
         private static string BuildCsv(DailyLogbookDto logbook)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("timestamp,local_time,device_key,device_name,temperature,humidity,ground_temperature,top_temperature,ground_humidity,top_humidity,soil_moisture");
+            builder.AppendLine("timestamp,local_time,period_start,period_end,device_key,device_name,avg_temperature,min_temperature,max_temperature,avg_humidity,min_humidity,max_humidity,ground_temperature,top_temperature,ground_humidity,top_humidity,avg_soil_moisture,min_soil_moisture,max_soil_moisture");
 
             foreach (var record in logbook.Records)
             {
                 builder.Append(Escape(record.Timestamp)).Append(',')
                     .Append(Escape(record.LocalTime)).Append(',')
+                    .Append(Escape(record.PeriodStartLocal)).Append(',')
+                    .Append(Escape(record.PeriodEndLocal)).Append(',')
                     .Append(Escape(record.DeviceKey)).Append(',')
                     .Append(Escape(record.DeviceName)).Append(',')
                     .Append(Format(record.Temperature)).Append(',')
+                    .Append(Format(record.MinTemperature)).Append(',')
+                    .Append(Format(record.MaxTemperature)).Append(',')
                     .Append(Format(record.Humidity)).Append(',')
+                    .Append(Format(record.MinHumidity)).Append(',')
+                    .Append(Format(record.MaxHumidity)).Append(',')
                     .Append(Format(record.GroundTemperature)).Append(',')
                     .Append(Format(record.TopTemperature)).Append(',')
                     .Append(Format(record.GroundHumidity)).Append(',')
                     .Append(Format(record.TopHumidity)).Append(',')
-                    .Append(Format(record.SoilMoisture))
+                    .Append(Format(record.SoilMoisture)).Append(',')
+                    .Append(Format(record.MinSoilMoisture)).Append(',')
+                    .Append(Format(record.MaxSoilMoisture))
                     .AppendLine();
             }
 

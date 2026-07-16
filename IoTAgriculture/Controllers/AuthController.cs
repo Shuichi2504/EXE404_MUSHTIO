@@ -29,13 +29,52 @@ namespace IoTAgriculture.Controllers
             }
         }
 
+        [HttpPost("request-email-code")]
+        public async Task<IActionResult> RequestEmailCode([FromBody] EmailCodeRequestDto dto)
+        {
+            try
+            {
+                await _authService.RequestEmailCodeAsync(dto);
+                return Ok(new { message = "Verification code sent" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("verify-email-code")]
+        public async Task<IActionResult> VerifyEmailCode([FromBody] VerifyEmailCodeRequestDto dto)
+        {
+            var valid = await _authService.VerifyEmailCodeAsync(dto);
+            return valid
+                ? Ok(new { message = "Email code is valid" })
+                : BadRequest(new { message = "Invalid or expired verification code" });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequestDto dto)
+        {
+            try
+            {
+                var changed = await _authService.ResetPasswordAsync(dto);
+                return changed
+                    ? Ok(new { message = "Password reset" })
+                    : BadRequest(new { message = "Invalid or expired verification code" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
         {
             var result = await _authService.LoginAsync(dto);
             if (result == null)
             {
-                return Unauthorized(new { message = "Phone number or password is incorrect" });
+                return Unauthorized(new { message = "Email/phone number or password is incorrect" });
             }
 
             return Ok(result);

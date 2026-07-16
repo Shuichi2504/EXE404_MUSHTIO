@@ -39,6 +39,29 @@ namespace IoTAgriculture.Services
                 """);
 
             await db.Database.ExecuteSqlRawAsync("""
+                IF COL_LENGTH(N'[Users]', N'Email') IS NULL
+                BEGIN
+                    ALTER TABLE [Users] ADD [Email] nvarchar(120) NOT NULL
+                        CONSTRAINT [DF_Users_Email] DEFAULT ('');
+                END
+                """);
+
+            await db.Database.ExecuteSqlRawAsync("""
+                IF COL_LENGTH(N'[Users]', N'EmailVerified') IS NULL
+                BEGIN
+                    ALTER TABLE [Users] ADD [EmailVerified] bit NOT NULL
+                        CONSTRAINT [DF_Users_EmailVerified] DEFAULT (0);
+                END
+                """);
+
+            await db.Database.ExecuteSqlRawAsync("""
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_Users_Email' AND object_id = OBJECT_ID(N'[Users]'))
+                BEGIN
+                    CREATE UNIQUE INDEX [IX_Users_Email] ON [Users] ([Email]) WHERE [Email] <> '';
+                END
+                """);
+
+            await db.Database.ExecuteSqlRawAsync("""
                 IF OBJECT_ID(N'[UserSessions]', N'U') IS NULL
                 BEGIN
                     CREATE TABLE [UserSessions] (
@@ -98,6 +121,23 @@ namespace IoTAgriculture.Services
                     CREATE INDEX [IX_ChatMessages_UserId_CreatedAt] ON [ChatMessages] ([UserId], [CreatedAt]);
                 END
                 """);
+            await db.Database.ExecuteSqlRawAsync("""
+                IF OBJECT_ID(N'[EmailVerificationCodes]', N'U') IS NULL
+                BEGIN
+                    CREATE TABLE [EmailVerificationCodes] (
+                        [VerificationId] uniqueidentifier NOT NULL CONSTRAINT [PK_EmailVerificationCodes] PRIMARY KEY,
+                        [Email] nvarchar(120) NOT NULL,
+                        [Code] nvarchar(6) NOT NULL,
+                        [Purpose] nvarchar(40) NOT NULL,
+                        [UserId] uniqueidentifier NULL,
+                        [CreatedAt] datetime2 NOT NULL,
+                        [ExpiresAt] datetime2 NOT NULL,
+                        [UsedAt] datetime2 NULL
+                    );
+                    CREATE INDEX [IX_EmailVerificationCodes_Email_Purpose_Code]
+                        ON [EmailVerificationCodes] ([Email], [Purpose], [Code]);
+                END
+                """);
             await SeedAdminAsync(db);
         }
 
@@ -115,6 +155,8 @@ namespace IoTAgriculture.Services
                 UserId = Guid.NewGuid(),
                 FullName = "Administrator",
                 PhoneNumber = adminPhone,
+                Email = "admin@mushtio.local",
+                EmailVerified = true,
                 Address = "Admin",
                 DateOfBirth = new DateTime(2000, 1, 1),
                 Role = 1,

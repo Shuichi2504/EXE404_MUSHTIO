@@ -10,6 +10,9 @@ namespace IoTAgriculture.DTOs.Auth
         [Required, MaxLength(20)]
         public string PhoneNumber { get; set; } = string.Empty;
 
+        [Required, EmailAddress, MaxLength(120)]
+        public string Email { get; set; } = string.Empty;
+
         [Required, MaxLength(255)]
         public string Address { get; set; } = string.Empty;
 

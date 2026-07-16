@@ -10,6 +10,12 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("localTime")]
         public string LocalTime { get; set; } = string.Empty;
 
+        [JsonPropertyName("periodStartLocal")]
+        public string PeriodStartLocal { get; set; } = string.Empty;
+
+        [JsonPropertyName("periodEndLocal")]
+        public string PeriodEndLocal { get; set; } = string.Empty;
+
         [JsonPropertyName("deviceKey")]
         public string DeviceKey { get; set; } = string.Empty;
 
@@ -19,8 +25,20 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("temperature")]
         public double? Temperature { get; set; }
 
+        [JsonPropertyName("minTemperature")]
+        public double? MinTemperature { get; set; }
+
+        [JsonPropertyName("maxTemperature")]
+        public double? MaxTemperature { get; set; }
+
         [JsonPropertyName("humidity")]
         public double? Humidity { get; set; }
+
+        [JsonPropertyName("minHumidity")]
+        public double? MinHumidity { get; set; }
+
+        [JsonPropertyName("maxHumidity")]
+        public double? MaxHumidity { get; set; }
 
         [JsonPropertyName("ground_temperature")]
         public double? GroundTemperature { get; set; }
@@ -37,14 +55,26 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("soil_moisture")]
         public double? SoilMoisture { get; set; }
 
+        [JsonPropertyName("minSoilMoisture")]
+        public double? MinSoilMoisture { get; set; }
+
+        [JsonPropertyName("maxSoilMoisture")]
+        public double? MaxSoilMoisture { get; set; }
+
         [JsonIgnore]
         public bool HasValue =>
             Temperature != null ||
+            MinTemperature != null ||
+            MaxTemperature != null ||
             Humidity != null ||
+            MinHumidity != null ||
+            MaxHumidity != null ||
             GroundTemperature != null ||
             TopTemperature != null ||
             GroundHumidity != null ||
             TopHumidity != null ||
-            SoilMoisture != null;
+            SoilMoisture != null ||
+            MinSoilMoisture != null ||
+            MaxSoilMoisture != null;
     }
 }

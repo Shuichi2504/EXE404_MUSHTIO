@@ -79,7 +79,8 @@ namespace IoTAgriculture.Services
             var nowUtc = DateTimeOffset.UtcNow;
             var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, VietnamTimeZone);
 
-            var records = await ReadSensorRecordsAsync(startMs, endMs, cancellationToken);
+            var snapshots = await ReadSensorRecordsAsync(startMs, endMs, cancellationToken);
+            var records = AggregateHourlyRecords(snapshots);
 
             var logbook = new DailyLogbookDto
             {
@@ -187,6 +188,8 @@ namespace IoTAgriculture.Services
             {
                 Timestamp = timestamp.ToString(CultureInfo.InvariantCulture),
                 LocalTime = local.ToString("yyyy-MM-dd HH:mm:ss"),
+                PeriodStartLocal = local.ToString("yyyy-MM-dd HH:00:00"),
+                PeriodEndLocal = local.AddHours(1).ToString("yyyy-MM-dd HH:00:00"),
                 DeviceKey = deviceKey,
                 DeviceName = deviceName,
                 Temperature = ReadDouble(json, "temperature"),
@@ -197,6 +200,74 @@ namespace IoTAgriculture.Services
                 TopHumidity = ReadLayerDouble(json, "top", "upper", "humidity"),
                 SoilMoisture = ReadDouble(json, "soil_moisture") ?? ReadDouble(json, "soilMoisture") ?? groundHumidity
             };
+        }
+
+        private static List<DailyLogbookRecordDto> AggregateHourlyRecords(
+            List<DailyLogbookRecordDto> snapshots)
+        {
+            return snapshots
+                .GroupBy(x => new
+                {
+                    x.DeviceKey,
+                    Hour = GetHourBucket(ParseTimestamp(x.Timestamp) ?? 0)
+                })
+                .OrderBy(g => g.Key.Hour)
+                .ThenBy(g => g.Key.DeviceKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    var first = g.OrderBy(x => ParseTimestamp(x.Timestamp) ?? 0).First();
+                    var start = DateTimeOffset.FromUnixTimeMilliseconds(g.Key.Hour);
+                    var localStart = TimeZoneInfo.ConvertTime(start, VietnamTimeZone);
+                    return new DailyLogbookRecordDto
+                    {
+                        Timestamp = g.Key.Hour.ToString(CultureInfo.InvariantCulture),
+                        LocalTime = localStart.ToString("yyyy-MM-dd HH:00:00"),
+                        PeriodStartLocal = localStart.ToString("yyyy-MM-dd HH:00:00"),
+                        PeriodEndLocal = localStart.AddHours(1).ToString("yyyy-MM-dd HH:00:00"),
+                        DeviceKey = first.DeviceKey,
+                        DeviceName = first.DeviceName,
+                        Temperature = Average(g.Select(x => x.Temperature)),
+                        MinTemperature = Min(g.Select(x => x.Temperature)),
+                        MaxTemperature = Max(g.Select(x => x.Temperature)),
+                        Humidity = Average(g.Select(x => x.Humidity)),
+                        MinHumidity = Min(g.Select(x => x.Humidity)),
+                        MaxHumidity = Max(g.Select(x => x.Humidity)),
+                        GroundTemperature = Average(g.Select(x => x.GroundTemperature)),
+                        TopTemperature = Average(g.Select(x => x.TopTemperature)),
+                        GroundHumidity = Average(g.Select(x => x.GroundHumidity)),
+                        TopHumidity = Average(g.Select(x => x.TopHumidity)),
+                        SoilMoisture = Average(g.Select(x => x.SoilMoisture)),
+                        MinSoilMoisture = Min(g.Select(x => x.SoilMoisture)),
+                        MaxSoilMoisture = Max(g.Select(x => x.SoilMoisture))
+                    };
+                })
+                .Where(x => x.HasValue)
+                .ToList();
+        }
+
+        private static long GetHourBucket(long timestamp)
+        {
+            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeMilliseconds(timestamp), VietnamTimeZone);
+            var localHour = new DateTime(local.Year, local.Month, local.Day, local.Hour, 0, 0);
+            return ToUtcOffset(localHour).ToUnixTimeMilliseconds();
+        }
+
+        private static double? Average(IEnumerable<double?> values)
+        {
+            var numbers = values.Where(x => x.HasValue).Select(x => x!.Value).ToList();
+            return numbers.Count == 0 ? null : Math.Round(numbers.Average(), 2);
+        }
+
+        private static double? Min(IEnumerable<double?> values)
+        {
+            var numbers = values.Where(x => x.HasValue).Select(x => x!.Value).ToList();
+            return numbers.Count == 0 ? null : Math.Round(numbers.Min(), 2);
+        }
+
+        private static double? Max(IEnumerable<double?> values)
+        {
+            var numbers = values.Where(x => x.HasValue).Select(x => x!.Value).ToList();
+            return numbers.Count == 0 ? null : Math.Round(numbers.Max(), 2);
         }
 
         private static string ReadDeviceName(string deviceKey, Dictionary<string, JsonElement> devices)

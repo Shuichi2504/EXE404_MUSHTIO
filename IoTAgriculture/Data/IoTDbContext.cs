@@ -16,6 +16,7 @@ namespace IoTAgriculture.Data
         public DbSet<UserDevice> UserDevices => Set<UserDevice>();
         public DbSet<UserActivity> UserActivities => Set<UserActivity>();
         public DbSet<ChatMessage> ChatMessages { get; set; }
+        public DbSet<EmailVerificationCode> EmailVerificationCodes => Set<EmailVerificationCode>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -32,6 +33,14 @@ namespace IoTAgriculture.Data
             modelBuilder.Entity<AppUser>()
                 .HasIndex(u => u.PhoneNumber)
                 .IsUnique();
+
+            modelBuilder.Entity<AppUser>()
+                .HasIndex(u => u.Email)
+                .IsUnique()
+                .HasFilter("[Email] <> ''");
+
+            modelBuilder.Entity<EmailVerificationCode>()
+                .HasIndex(x => new { x.Email, x.Purpose, x.Code });
 
             modelBuilder.Entity<UserSession>()
                 .HasIndex(s => s.Token)

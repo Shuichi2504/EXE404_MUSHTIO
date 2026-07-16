@@ -24,6 +24,7 @@ builder.Services.AddDbContext<IoTDbContext>(options =>
 builder.Services.AddHttpClient<IFirebaseRtdbService, FirebaseRtdbService>();
 builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddScoped<ILogbookService, LogbookService>();
