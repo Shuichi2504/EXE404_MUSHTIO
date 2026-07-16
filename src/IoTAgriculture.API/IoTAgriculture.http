@@ -1,0 +1,6 @@
+@IoTAgriculture_HostAddress = http://localhost:5238
+
+GET {{IoTAgriculture_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
