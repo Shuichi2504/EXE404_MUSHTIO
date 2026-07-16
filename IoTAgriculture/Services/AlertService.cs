@@ -6,15 +6,21 @@ namespace IoTAgriculture.Services
 {
     public class AlertService : IAlertService
     {
-        private const double HighTemperatureCelsius = 35;
+        private const double HighTemperatureWarningCelsius = 30;
+        private const double HighTemperatureCriticalCelsius = 35;
         private const double LowSoilMoisturePercent = 30;
+        private const double PoorAirQualityThreshold = 1000;
         private static readonly TimeSpan SensorOfflineAfter = TimeSpan.FromMinutes(2);
         private static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
         private readonly IFirebaseRtdbService _firebase;
+        private readonly IFirebasePushNotificationService _pushNotifications;
 
-        public AlertService(IFirebaseRtdbService firebase)
+        public AlertService(
+            IFirebaseRtdbService firebase,
+            IFirebasePushNotificationService pushNotifications)
         {
             _firebase = firebase;
+            _pushNotifications = pushNotifications;
         }
 
         public async Task ProcessAlertsAsync(CancellationToken cancellationToken = default)
@@ -33,6 +39,9 @@ namespace IoTAgriculture.Services
                     ?? ReadString(device.Value, "deviceName")
                     ?? device.Key;
                 var temperature = ReadDouble(device.Value, "temperature");
+                var airQuality = ReadDouble(device.Value, "air_quality")
+                    ?? ReadDouble(device.Value, "airQuality")
+                    ?? ReadDouble(device.Value, "air_quanlity");
                 var soilMoisture = ReadDouble(device.Value, "soil_moisture")
                     ?? ReadDouble(device.Value, "soilMoisture");
                 var lastSeen = ReadTimestamp(device.Value);
@@ -40,12 +49,36 @@ namespace IoTAgriculture.Services
                 await UpsertAlertAsync(
                     device.Key,
                     name,
-                    "high_temperature",
-                    temperature != null && temperature > HighTemperatureCelsius,
+                    "high_temperature_warning",
+                    temperature != null &&
+                        temperature > HighTemperatureWarningCelsius &&
+                        temperature <= HighTemperatureCriticalCelsius,
                     "temperature",
                     temperature,
-                    HighTemperatureCelsius,
-                    $"Nhiet do cao tren {HighTemperatureCelsius:0.#} C",
+                    HighTemperatureWarningCelsius,
+                    $"Nhiet do cao tren {HighTemperatureWarningCelsius:0.#} C",
+                    cancellationToken);
+
+                await UpsertAlertAsync(
+                    device.Key,
+                    name,
+                    "high_temperature_critical",
+                    temperature != null && temperature > HighTemperatureCriticalCelsius,
+                    "temperature",
+                    temperature,
+                    HighTemperatureCriticalCelsius,
+                    $"Nhiet do rat cao tren {HighTemperatureCriticalCelsius:0.#} C",
+                    cancellationToken);
+
+                await UpsertAlertAsync(
+                    device.Key,
+                    name,
+                    "poor_air_quality",
+                    airQuality != null && airQuality > PoorAirQualityThreshold,
+                    "air_quality",
+                    airQuality,
+                    PoorAirQualityThreshold,
+                    $"Chat luong khong khi xau tren {PoorAirQualityThreshold:0.#}",
                     cancellationToken);
 
                 await UpsertAlertAsync(
@@ -122,12 +155,24 @@ namespace IoTAgriculture.Services
 
             await _firebase.SetAsync(path, alert, cancellationToken);
             await _firebase.PushAsync($"alerts/{deviceKey}", alert, cancellationToken);
+            await _pushNotifications.SendDeviceAlertAsync(
+                deviceKey,
+                deviceName,
+                $"Cảnh báo {deviceName}",
+                message,
+                alert.Severity,
+                cancellationToken);
         }
 
         private static bool IsSensorPayload(JsonElement json)
         {
             return HasMetric(json, "temperature") ||
                 HasMetric(json, "humidity") ||
+                HasMetric(json, "air_quality") ||
+                HasMetric(json, "airQuality") ||
+                HasMetric(json, "air_quanlity") ||
+                ReadString(json, "air_status") != null ||
+                ReadString(json, "airStatus") != null ||
                 HasMetric(json, "soil_moisture") ||
                 HasMetric(json, "soilMoisture");
         }
