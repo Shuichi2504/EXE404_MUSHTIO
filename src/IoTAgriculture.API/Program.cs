@@ -56,10 +56,7 @@ app.UseSwagger();
     app.UseSwaggerUI();
 
 app.UseCors("FrontendCors");
-app.UseDefaultFiles();
-app.UseStaticFiles();
 app.MapControllers();
-app.MapFallbackToFile("index.html");
 
 await AuthSchemaInitializer.InitializeAsync(app.Services);
 

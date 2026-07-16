@@ -43,6 +43,12 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("air_quality")]
         public double? AirQuality { get; set; }
 
+        [JsonPropertyName("minAirQuality")]
+        public double? MinAirQuality { get; set; }
+
+        [JsonPropertyName("maxAirQuality")]
+        public double? MaxAirQuality { get; set; }
+
         [JsonPropertyName("ground_temperature")]
         public double? GroundTemperature { get; set; }
 
@@ -73,6 +79,8 @@ namespace IoTAgriculture.DTOs.Firebase
             MinHumidity != null ||
             MaxHumidity != null ||
             AirQuality != null ||
+            MinAirQuality != null ||
+            MaxAirQuality != null ||
             GroundTemperature != null ||
             TopTemperature != null ||
             GroundHumidity != null ||

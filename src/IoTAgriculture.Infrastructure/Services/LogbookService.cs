@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using IoTAgriculture.DTOs.Firebase;
 using IoTAgriculture.Services.Interfaces;
-using Microsoft.AspNetCore.Hosting;
 
 namespace IoTAgriculture.Services
 {
@@ -14,11 +13,10 @@ namespace IoTAgriculture.Services
         private readonly IFirebaseRtdbService _firebase;
         private readonly string _exportDirectory;
 
-        public LogbookService(IFirebaseRtdbService firebase, IWebHostEnvironment environment)
+        public LogbookService(IFirebaseRtdbService firebase)
         {
             _firebase = firebase;
-            var webRoot = environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
-            _exportDirectory = Path.Combine(webRoot, "exports");
+            _exportDirectory = Path.Combine(AppContext.BaseDirectory, "exports");
         }
 
         public async Task CaptureSensorSnapshotsAsync(CancellationToken cancellationToken = default)
@@ -272,6 +270,9 @@ namespace IoTAgriculture.Services
                         Humidity = Average(g.Select(x => x.Humidity)),
                         MinHumidity = Min(g.Select(x => x.Humidity)),
                         MaxHumidity = Max(g.Select(x => x.Humidity)),
+                        AirQuality = Average(g.Select(x => x.AirQuality)),
+                        MinAirQuality = Min(g.Select(x => x.AirQuality)),
+                        MaxAirQuality = Max(g.Select(x => x.AirQuality)),
                         GroundTemperature = Average(g.Select(x => x.GroundTemperature)),
                         TopTemperature = Average(g.Select(x => x.TopTemperature)),
                         GroundHumidity = Average(g.Select(x => x.GroundHumidity)),
@@ -426,7 +427,7 @@ namespace IoTAgriculture.Services
         private static string BuildCsv(DailyLogbookDto logbook)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("timestamp,local_time,device_key,device_name,temperature,humidity,air_quality,ground_temperature,top_temperature,ground_humidity,top_humidity,soil_moisture");
+            builder.AppendLine("timestamp,local_time,device_key,device_name,min_temperature,max_temperature,min_humidity,max_humidity,min_air_quality,max_air_quality,min_soil_moisture,max_soil_moisture,ground_temperature,top_temperature,ground_humidity,top_humidity");
 
             foreach (var record in logbook.Records)
             {
@@ -434,14 +435,18 @@ namespace IoTAgriculture.Services
                     .Append(Escape(record.LocalTime)).Append(',')
                     .Append(Escape(record.DeviceKey)).Append(',')
                     .Append(Escape(record.DeviceName)).Append(',')
-                    .Append(Format(record.Temperature)).Append(',')
-                    .Append(Format(record.Humidity)).Append(',')
-                    .Append(Format(record.AirQuality)).Append(',')
+                    .Append(Format(record.MinTemperature)).Append(',')
+                    .Append(Format(record.MaxTemperature)).Append(',')
+                    .Append(Format(record.MinHumidity)).Append(',')
+                    .Append(Format(record.MaxHumidity)).Append(',')
+                    .Append(Format(record.MinAirQuality)).Append(',')
+                    .Append(Format(record.MaxAirQuality)).Append(',')
+                    .Append(Format(record.MinSoilMoisture)).Append(',')
+                    .Append(Format(record.MaxSoilMoisture)).Append(',')
                     .Append(Format(record.GroundTemperature)).Append(',')
                     .Append(Format(record.TopTemperature)).Append(',')
                     .Append(Format(record.GroundHumidity)).Append(',')
-                    .Append(Format(record.TopHumidity)).Append(',')
-                    .Append(Format(record.SoilMoisture))
+                    .Append(Format(record.TopHumidity))
                     .AppendLine();
             }
 

@@ -1,3 +1,4 @@
+using IoTAgriculture.API.Contracts;
 using IoTAgriculture.DTOs;
 using IoTAgriculture.Services;
 using IoTAgriculture.Services.Interfaces;
