@@ -15,7 +15,7 @@ public class GeminiService
             ?? configuration["GeminiApiKey"]
             ?? configuration["GOOGLE_API_KEY"]
             ?? "";
-        _model = configuration["Gemini:Model"] ?? "gemini-1.5-flash";
+        _model = configuration["Gemini:Model"] ?? "gemini-2.5-flash";
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(45);
     }
