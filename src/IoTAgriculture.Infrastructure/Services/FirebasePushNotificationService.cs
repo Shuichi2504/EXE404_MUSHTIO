@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -38,32 +39,11 @@ namespace IoTAgriculture.Services
             _logger = logger;
         }
 
-        public Task SendDeviceAlertAsync(
-            string deviceKey,
-            string deviceName,
-            string title,
-            string body,
-            string severity,
-            CancellationToken cancellationToken = default)
-        {
-            return SendDeviceAlertAsync(
-                deviceKey,
-                deviceName,
-                "device_alert",
-                "device",
-                title,
-                body,
-                severity,
-                null,
-                null,
-                cancellationToken);
-        }
-
         public async Task SendDeviceAlertAsync(
             string deviceKey,
             string deviceName,
             string alertType,
-            string metricType,
+            string metric,
             string title,
             string body,
             string severity,
@@ -94,7 +74,7 @@ namespace IoTAgriculture.Services
                     DeviceKey = deviceKey,
                     DeviceName = deviceName,
                     AlertType = alertType,
-                    MetricType = metricType,
+                    MetricType = metric,
                     Severity = severity,
                     Title = title,
                     Body = body,
@@ -145,13 +125,16 @@ namespace IoTAgriculture.Services
                         data = new Dictionary<string, string>
                         {
                             ["alertType"] = alertType,
-                            ["metricType"] = metricType,
+                            ["metric"] = metric,
+                            ["metricType"] = metric,
                             ["deviceId"] = deviceKey,
                             ["deviceKey"] = deviceKey,
                             ["deviceName"] = deviceName,
                             ["severity"] = severity,
                             ["title"] = title,
-                            ["body"] = body
+                            ["body"] = body,
+                            ["value"] = value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                            ["threshold"] = threshold?.ToString(CultureInfo.InvariantCulture) ?? string.Empty
                         },
                         android = new
                         {
