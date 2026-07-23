@@ -7,10 +7,14 @@ namespace IoTAgriculture.Services
     {
         private static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
         private readonly IFirebaseRtdbService _firebase;
+        private readonly ILogger<DeviceService> _logger;
 
-        public DeviceService(IFirebaseRtdbService firebase)
+        public DeviceService(
+            IFirebaseRtdbService firebase,
+            ILogger<DeviceService> logger)
         {
             _firebase = firebase;
+            _logger = logger;
         }
 
         public Task<PumpStateDto?> GetPumpStateAsync(string pumpKey)
@@ -89,6 +93,7 @@ namespace IoTAgriculture.Services
             string relayKey,
             UpsertAutoIrrigationScheduleDto dto)
         {
+            ValidateSchedule(dto);
             var cleanRelay = relayKey.Trim();
             var existing = await GetScheduleAsync(pumpKey, cleanRelay);
             var nowUtc = DateTimeOffset.UtcNow;
@@ -99,11 +104,18 @@ namespace IoTAgriculture.Services
                 RelayKey = cleanRelay,
                 Enabled = dto.Enabled,
                 IntervalMinutes = dto.IntervalMinutes,
-                DurationMinutes = dto.DurationMinutes,
+                DurationSeconds = dto.DurationSeconds,
                 StartTime = dto.StartTime,
+                EndTime = dto.EndTime,
                 SmartEnabled = dto.SmartEnabled,
                 SensorKey = string.IsNullOrWhiteSpace(dto.SensorKey) ? existing?.SensorKey : dto.SensorKey.Trim(),
-                MaxDurationMinutes = dto.MaxDurationMinutes,
+                SoilMoistureThresholdEnabled = dto.SoilMoistureThresholdEnabled,
+                SoilMoistureThreshold = dto.SoilMoistureThreshold,
+                AirTempThresholdEnabled = dto.AirTempThresholdEnabled,
+                AirTempMin = dto.AirTempMin,
+                AirTempMax = dto.AirTempMax,
+                AirHumidityThresholdEnabled = dto.AirHumidityThresholdEnabled,
+                AirHumidityThreshold = dto.AirHumidityThreshold,
                 CooldownMinutes = dto.CooldownMinutes,
                 LastRunAt = existing?.LastRunAt,
                 LastRunLocal = existing?.LastRunLocal,
@@ -111,6 +123,8 @@ namespace IoTAgriculture.Services
                 ActiveUntilLocal = existing?.ActiveUntilLocal,
                 LastSmartRunAt = existing?.LastSmartRunAt,
                 LastSmartRunLocal = existing?.LastSmartRunLocal,
+                LastTriggeredAt = existing?.LastTriggeredAt,
+                LastTriggeredLocal = existing?.LastTriggeredLocal,
                 UpdatedAt = nowUtc.ToString("O"),
                 UpdatedLocal = nowLocal.ToString("yyyy-MM-dd HH:mm:ss")
             };
@@ -149,7 +163,7 @@ namespace IoTAgriculture.Services
                 foreach (var relayEntry in pumpEntry.Value)
                 {
                     var schedule = relayEntry.Value;
-                    if (schedule == null || !schedule.Enabled)
+                    if (schedule == null)
                     {
                         continue;
                     }
@@ -181,6 +195,11 @@ namespace IoTAgriculture.Services
                         continue;
                     }
 
+                    if (!schedule.Enabled)
+                    {
+                        continue;
+                    }
+
                     var nextRunLocal = ParseLocalDateTime(schedule.NextRunLocal);
                     if (nextRunLocal == null)
                     {
@@ -198,7 +217,7 @@ namespace IoTAgriculture.Services
                         true,
                         "schedule",
                         cancellationToken: cancellationToken);
-                    var stopAtLocal = nowLocal.AddMinutes(schedule.DurationMinutes);
+                    var stopAtLocal = nowLocal.AddSeconds(schedule.DurationSeconds);
                     schedule.LastRunAt = ToUtcOffset(nowLocal).ToString("O");
                     schedule.LastRunLocal = nowLocal.ToString("yyyy-MM-dd HH:mm:ss");
                     schedule.ActiveUntilAt = ToUtcOffset(stopAtLocal).ToString("O");
@@ -222,15 +241,149 @@ namespace IoTAgriculture.Services
             }
         }
 
-        public Task ProcessSmartIrrigationAsync(CancellationToken cancellationToken = default)
+        public async Task ProcessSmartIrrigationAsync(CancellationToken cancellationToken = default)
         {
-            return Task.CompletedTask;
+            var schedules = await _firebase.GetAsync<Dictionary<string, Dictionary<string, AutoIrrigationScheduleDto>>>(
+                "pumpSchedules",
+                cancellationToken);
+            if (schedules == null || schedules.Count == 0)
+            {
+                return;
+            }
+
+            var sensors = await _firebase.GetAsync<Dictionary<string, SensorStateDto>>(
+                "devices",
+                cancellationToken) ?? new Dictionary<string, SensorStateDto>();
+            var nowUtc = DateTimeOffset.UtcNow;
+            var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, VietnamTimeZone);
+
+            foreach (var pumpEntry in schedules)
+            {
+                if (pumpEntry.Value == null)
+                {
+                    continue;
+                }
+
+                foreach (var relayEntry in pumpEntry.Value)
+                {
+                    try
+                    {
+                        var schedule = relayEntry.Value;
+                        if (schedule == null || !schedule.SmartEnabled)
+                        {
+                            continue;
+                        }
+
+                        schedule.PumpKey = pumpEntry.Key;
+                        schedule.RelayKey = string.IsNullOrWhiteSpace(schedule.RelayKey)
+                            ? relayEntry.Key
+                            : schedule.RelayKey;
+
+                        if (!IsInsideOperatingWindow(schedule, nowLocal.DateTime))
+                        {
+                            continue;
+                        }
+
+                        var activeUntil = ParseLocalDateTime(schedule.ActiveUntilLocal);
+                        if (activeUntil != null)
+                        {
+                            if (activeUntil <= nowLocal.DateTime)
+                            {
+                                await SetRelayAsync(
+                                    pumpEntry.Key,
+                                    schedule.RelayKey,
+                                    false,
+                                    "smart-threshold",
+                                    cancellationToken: cancellationToken);
+                                schedule.ActiveUntilAt = null;
+                                schedule.ActiveUntilLocal = null;
+                                await _firebase.SetAsync(
+                                    $"pumpSchedules/{pumpEntry.Key}/{schedule.RelayKey}",
+                                    schedule,
+                                    cancellationToken);
+                            }
+
+                            continue;
+                        }
+
+                        var preferredSensor = !string.IsNullOrWhiteSpace(schedule.SensorKey) &&
+                            sensors.TryGetValue(schedule.SensorKey, out var selected)
+                                ? selected
+                                : null;
+                        var soilMoisture = preferredSensor?.GroundHumidity ??
+                            sensors.Values.Select(x => x?.GroundHumidity).FirstOrDefault(x => x.HasValue);
+                        var airTemperature = preferredSensor?.Temperature ??
+                            sensors.Values.Select(x => x?.Temperature).FirstOrDefault(x => x.HasValue);
+                        var airHumidity = preferredSensor?.Humidity ??
+                            sensors.Values.Select(x => x?.Humidity).FirstOrDefault(x => x.HasValue);
+
+                        var soilViolation = schedule.SoilMoistureThresholdEnabled &&
+                            soilMoisture.HasValue &&
+                            schedule.SoilMoistureThreshold.HasValue &&
+                            soilMoisture.Value < schedule.SoilMoistureThreshold.Value;
+                        var temperatureViolation = schedule.AirTempThresholdEnabled &&
+                            airTemperature.HasValue &&
+                            schedule.AirTempMax.HasValue &&
+                            (decimal)airTemperature.Value > schedule.AirTempMax.Value;
+                        var humidityViolation = schedule.AirHumidityThresholdEnabled &&
+                            airHumidity.HasValue &&
+                            schedule.AirHumidityThreshold.HasValue &&
+                            airHumidity.Value < schedule.AirHumidityThreshold.Value;
+
+                        if (!soilViolation && !temperatureViolation && !humidityViolation)
+                        {
+                            continue;
+                        }
+
+                        var lastTriggered = ParseUtcDateTimeOffset(
+                            schedule.LastTriggeredAt ?? schedule.LastSmartRunAt);
+                        if (lastTriggered.HasValue &&
+                            nowUtc - lastTriggered.Value < TimeSpan.FromMinutes(schedule.CooldownMinutes))
+                        {
+                            continue;
+                        }
+
+                        await SetRelayAsync(
+                            pumpEntry.Key,
+                            schedule.RelayKey,
+                            true,
+                            "smart-threshold",
+                            cancellationToken: cancellationToken);
+
+                        var stopAtLocal = nowLocal.DateTime.AddSeconds(schedule.DurationSeconds);
+                        schedule.ActiveUntilAt = ToUtcOffset(stopAtLocal).ToString("O");
+                        schedule.ActiveUntilLocal = stopAtLocal.ToString("yyyy-MM-dd HH:mm:ss");
+                        schedule.LastTriggeredAt = nowUtc.ToString("O");
+                        schedule.LastTriggeredLocal = nowLocal.ToString("yyyy-MM-dd HH:mm:ss");
+                        schedule.LastSmartRunAt = schedule.LastTriggeredAt;
+                        schedule.LastSmartRunLocal = schedule.LastTriggeredLocal;
+                        await _firebase.SetAsync(
+                            $"pumpSchedules/{pumpEntry.Key}/{schedule.RelayKey}",
+                            schedule,
+                            cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(
+                            ex,
+                            "Smart irrigation failed for pump {PumpKey}, relay {RelayKey}; continuing other schedules.",
+                            pumpEntry.Key,
+                            relayEntry.Key);
+                    }
+                }
+            }
         }
 
         private static DateTime CalculateNextRun(AutoIrrigationScheduleDto schedule, DateTime referenceLocal)
         {
             var start = ParseTimeOfDay(schedule.StartTime);
+            var end = ParseTimeOfDay(schedule.EndTime);
             var firstRunToday = referenceLocal.Date.Add(start);
+            var endToday = referenceLocal.Date.Add(end);
 
             if (!schedule.Enabled)
             {
@@ -242,10 +395,56 @@ namespace IoTAgriculture.Services
                 return firstRunToday;
             }
 
+            if (referenceLocal >= endToday)
+            {
+                return firstRunToday.AddDays(1);
+            }
+
             var interval = Math.Max(1, schedule.IntervalMinutes);
             var elapsedMinutes = (referenceLocal - firstRunToday).TotalMinutes;
             var cycles = Math.Ceiling(elapsedMinutes / interval);
-            return firstRunToday.AddMinutes(cycles * interval);
+            var candidate = firstRunToday.AddMinutes(cycles * interval);
+            return candidate < endToday ? candidate : firstRunToday.AddDays(1);
+        }
+
+        private static bool IsInsideOperatingWindow(
+            AutoIrrigationScheduleDto schedule,
+            DateTime localTime)
+        {
+            var time = localTime.TimeOfDay;
+            return time >= ParseTimeOfDay(schedule.StartTime) &&
+                time < ParseTimeOfDay(schedule.EndTime);
+        }
+
+        private static void ValidateSchedule(UpsertAutoIrrigationScheduleDto dto)
+        {
+            var start = ParseTimeOfDay(dto.StartTime);
+            var end = ParseTimeOfDay(dto.EndTime);
+            if (end <= start)
+            {
+                throw new ArgumentException("EndTime must be later than StartTime.");
+            }
+
+            if (dto.SoilMoistureThresholdEnabled && !dto.SoilMoistureThreshold.HasValue)
+            {
+                throw new ArgumentException("SoilMoistureThreshold is required when enabled.");
+            }
+
+            if (dto.AirTempThresholdEnabled && !dto.AirTempMax.HasValue)
+            {
+                throw new ArgumentException("AirTempMax is required when enabled.");
+            }
+
+            if (dto.AirTempMin.HasValue && dto.AirTempMax.HasValue &&
+                dto.AirTempMin.Value >= dto.AirTempMax.Value)
+            {
+                throw new ArgumentException("AirTempMax must be greater than AirTempMin.");
+            }
+
+            if (dto.AirHumidityThresholdEnabled && !dto.AirHumidityThreshold.HasValue)
+            {
+                throw new ArgumentException("AirHumidityThreshold is required when enabled.");
+            }
         }
 
         private static TimeSpan ParseTimeOfDay(string? raw)
@@ -261,6 +460,11 @@ namespace IoTAgriculture.Services
             }
 
             return DateTime.TryParse(raw, out var parsed) ? parsed : null;
+        }
+
+        private static DateTimeOffset? ParseUtcDateTimeOffset(string? raw)
+        {
+            return DateTimeOffset.TryParse(raw, out var parsed) ? parsed : null;
         }
 
         private static DateTimeOffset ToUtcOffset(DateTime localTime)

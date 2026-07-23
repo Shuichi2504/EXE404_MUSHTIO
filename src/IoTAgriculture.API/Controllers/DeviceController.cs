@@ -96,8 +96,15 @@ namespace IoTAgriculture.Controllers
             if (profile == null) return Unauthorized();
             if (!await CanReadDeviceAsync(deviceKey, profile.UserId, profile.Role)) return StatusCode(StatusCodes.Status403Forbidden);
 
-            var schedule = await _service.SaveScheduleAsync(deviceKey, relayKey, dto);
-            return Ok(schedule);
+            try
+            {
+                var schedule = await _service.SaveScheduleAsync(deviceKey, relayKey, dto);
+                return Ok(schedule);
+            }
+            catch (ArgumentException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
         }
 
         [HttpPost("register-fcm-token")]
@@ -135,6 +142,30 @@ namespace IoTAgriculture.Controllers
 
             await _db.SaveChangesAsync();
             return Ok(new { message = "FCM token registered" });
+        }
+
+        [HttpPost("deactivate-fcm-token")]
+        public async Task<IActionResult> DeactivateFcmToken(
+            [FromBody] RegisterFcmTokenRequest request)
+        {
+            var profile = await _authService.GetProfileAsync(ReadBearerToken());
+            if (profile == null) return Unauthorized();
+
+            var token = request.FcmToken.Trim();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return BadRequest(new { message = "FCM token is required" });
+            }
+
+            var existing = await _db.FcmTokens.FirstOrDefaultAsync(x =>
+                x.UserId == profile.UserId && x.Token == token);
+            if (existing != null)
+            {
+                _db.FcmTokens.Remove(existing);
+                await _db.SaveChangesAsync();
+            }
+
+            return Ok(new { message = "FCM token deactivated" });
         }
 
         private async Task<bool> CanReadDeviceAsync(string deviceKey, Guid userId, string role)

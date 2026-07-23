@@ -28,9 +28,6 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("top_humidity")]
         public double? TopHumidity { get; set; }
 
-        [JsonPropertyName("soil_moisture")]
-        public double? SoilMoisture { get; set; }
-
         [JsonPropertyName("timestamp")]
         public string? Timestamp { get; set; }
 

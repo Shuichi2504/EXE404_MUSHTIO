@@ -61,15 +61,6 @@ namespace IoTAgriculture.DTOs.Firebase
         [JsonPropertyName("top_humidity")]
         public double? TopHumidity { get; set; }
 
-        [JsonPropertyName("soil_moisture")]
-        public double? SoilMoisture { get; set; }
-
-        [JsonPropertyName("minSoilMoisture")]
-        public double? MinSoilMoisture { get; set; }
-
-        [JsonPropertyName("maxSoilMoisture")]
-        public double? MaxSoilMoisture { get; set; }
-
       [JsonIgnore]
         public bool HasValue =>
             Temperature != null ||
@@ -84,10 +75,7 @@ namespace IoTAgriculture.DTOs.Firebase
             GroundTemperature != null ||
             TopTemperature != null ||
             GroundHumidity != null ||
-            TopHumidity != null ||
-            SoilMoisture != null ||
-            MinSoilMoisture != null ||
-            MaxSoilMoisture != null;
+            TopHumidity != null;
     }
 }
 

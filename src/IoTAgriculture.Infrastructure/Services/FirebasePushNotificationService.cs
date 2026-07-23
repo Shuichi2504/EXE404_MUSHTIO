@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -38,32 +39,11 @@ namespace IoTAgriculture.Services
             _logger = logger;
         }
 
-        public Task SendDeviceAlertAsync(
-            string deviceKey,
-            string deviceName,
-            string title,
-            string body,
-            string severity,
-            CancellationToken cancellationToken = default)
-        {
-            return SendDeviceAlertAsync(
-                deviceKey,
-                deviceName,
-                "device_alert",
-                "device",
-                title,
-                body,
-                severity,
-                null,
-                null,
-                cancellationToken);
-        }
-
         public async Task SendDeviceAlertAsync(
             string deviceKey,
             string deviceName,
             string alertType,
-            string metricType,
+            string metric,
             string title,
             string body,
             string severity,
@@ -94,7 +74,7 @@ namespace IoTAgriculture.Services
                     DeviceKey = deviceKey,
                     DeviceName = deviceName,
                     AlertType = alertType,
-                    MetricType = metricType,
+                    MetricType = metric,
                     Severity = severity,
                     Title = title,
                     Body = body,
@@ -145,13 +125,16 @@ namespace IoTAgriculture.Services
                         data = new Dictionary<string, string>
                         {
                             ["alertType"] = alertType,
-                            ["metricType"] = metricType,
+                            ["metric"] = metric,
+                            ["metricType"] = metric,
                             ["deviceId"] = deviceKey,
                             ["deviceKey"] = deviceKey,
                             ["deviceName"] = deviceName,
                             ["severity"] = severity,
                             ["title"] = title,
-                            ["body"] = body
+                            ["body"] = body,
+                            ["value"] = value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                            ["threshold"] = threshold?.ToString(CultureInfo.InvariantCulture) ?? string.Empty
                         },
                         android = new
                         {
@@ -184,16 +167,37 @@ namespace IoTAgriculture.Services
                     Encoding.UTF8,
                     "application/json");
 
-                var client = _httpClientFactory.CreateClient();
-                var response = await client.SendAsync(request, cancellationToken);
-                if (!response.IsSuccessStatusCode)
+                try
                 {
+                    var client = _httpClientFactory.CreateClient();
+                    using var response = await client.SendAsync(request, cancellationToken);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var successResponseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                        _logger.LogInformation(
+                            "FCM push sent successfully to token ending {TokenSuffix}: {Response}",
+                            targetToken.Length <= 8 ? targetToken : targetToken[^8..],
+                            successResponseBody);
+                        continue;
+                    }
+
                     var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
                     _logger.LogWarning(
                         "Failed to send FCM alert to token ending {TokenSuffix}: {StatusCode} {Body}",
                         targetToken.Length <= 8 ? targetToken : targetToken[^8..],
                         response.StatusCode,
                         responseBody);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "FCM send failed for token ending {TokenSuffix}; alert processing continues.",
+                        targetToken.Length <= 8 ? targetToken : targetToken[^8..]);
                 }
             }
         }
@@ -247,8 +251,8 @@ namespace IoTAgriculture.Services
                 {
                     if (string.IsNullOrWhiteSpace(serviceAccountPath))
                     {
-                        _logger.LogInformation(
-                            "Firebase push notifications are disabled because no service account path or base64 is configured.");
+                        _logger.LogWarning(
+                            "Firebase service account chưa cấu hình, bỏ qua gửi push notification.");
                         _disabled = true;
                         return false;
                     }
@@ -372,6 +376,9 @@ namespace IoTAgriculture.Services
                     ? seconds
                     : 3600;
                 _accessTokenExpiresAt = now.AddSeconds(expiresIn);
+                _logger.LogInformation(
+                    "Firebase access token acquired successfully for project {ProjectId}.",
+                    config.ProjectId);
                 return _accessToken;
             }
             finally
