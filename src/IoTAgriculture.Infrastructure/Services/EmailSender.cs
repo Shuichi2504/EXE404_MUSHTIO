@@ -13,16 +13,13 @@ namespace IoTAgriculture.Services
         private static string? _cachedAccessToken;
         private static DateTimeOffset _cachedAccessTokenExpiresAt;
 
-        private readonly IConfiguration _configuration;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<EmailSender> _logger;
 
         public EmailSender(
-            IConfiguration configuration,
             IHttpClientFactory httpClientFactory,
             ILogger<EmailSender> logger)
         {
-            _configuration = configuration;
             _httpClientFactory = httpClientFactory;
             _logger = logger;
         }
@@ -33,7 +30,7 @@ namespace IoTAgriculture.Services
             string purpose,
             CancellationToken cancellationToken = default)
         {
-            var senderEmail = RequiredConfig("Google:SenderEmail");
+            var senderEmail = RequiredEnvironmentVariable("GOOGLE_SENDER_EMAIL");
             var accessToken = await GetAccessTokenAsync(cancellationToken);
             var rawMessage = BuildRawMessage(senderEmail, email, code, purpose);
 
@@ -80,9 +77,9 @@ namespace IoTAgriculture.Services
                     return _cachedAccessToken;
                 }
 
-                var clientId = RequiredConfig("Google:ClientId");
-                var clientSecret = RequiredConfig("Google:ClientSecret");
-                var refreshToken = RequiredConfig("Google:RefreshToken");
+                var clientId = RequiredEnvironmentVariable("GOOGLE_CLIENT_ID");
+                var clientSecret = RequiredEnvironmentVariable("GOOGLE_CLIENT_SECRET");
+                var refreshToken = RequiredEnvironmentVariable("GOOGLE_REFRESH_TOKEN");
 
                 using var request = new HttpRequestMessage(
                     HttpMethod.Post,
@@ -138,16 +135,16 @@ namespace IoTAgriculture.Services
             }
         }
 
-        private string RequiredConfig(string key)
+        private static string RequiredEnvironmentVariable(string key)
         {
-            var value = _configuration[key];
+            var value = Environment.GetEnvironmentVariable(key);
             if (!string.IsNullOrWhiteSpace(value))
             {
                 return value;
             }
 
             throw new InvalidOperationException(
-                $"Missing required configuration '{key}'. Set it with user-secrets for Development or environment variables in Production.");
+                $"Missing required environment variable '{key}'.");
         }
 
         private static string BuildRawMessage(
